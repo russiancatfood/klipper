@@ -15,19 +15,28 @@ import math
 class ArcSupport:
     def __init__(self, config):
         self.printer = config.get_printer()
-        self.mm_per_arc_segment = config.getfloat('resolution', 1., above=0.0)
-
+        # Default arc resolution set to 0.025mm which covers precision of
+        # most machines
+        self.mm_per_arc_segment = config.getfloat('resolution', 0.025, above=0.0)
+        
+        self.plane = 'XY' # Default to XY, other planes are XZ and YZ
         self.gcode_move = self.printer.load_object(config, 'gcode_move')
         self.gcode = self.printer.lookup_object('gcode')
         self.gcode.register_command("G2", self.cmd_G2)
-        self.gcode.register_command("G3", self.cmd_G3)
-
+        self.gcode.register_command("G3", self.cmd_G2)
+        self.gcode.register_command("G17", self.cmd_G17)
+        self.gcode.register_command("G18", self.cmd_G18)
+        self.gcode.register_command("G19", self.cmd_G19)
+    def cmd_G17(self, gcmd):
+        self.plane = 'XY'
+    def cmd_G18(self, gcmd):
+        self.plane = 'XZ'
+    def cmd_G19(self, gcmd):
+        self.plane = 'YZ'
     def cmd_G2(self, gcmd):
         self._cmd_inner(gcmd, True)
-
     def cmd_G3(self, gcmd):
         self._cmd_inner(gcmd, False)
-
     def _cmd_inner(self, gcmd, clockwise):
         gcodestatus = self.gcode_move.get_status()
         if not gcodestatus['absolute_coordinates']:
