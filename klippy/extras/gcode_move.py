@@ -43,6 +43,7 @@ class GCodeMove:
         self.last_position = [0.0, 0.0, 0.0, 0.0]
         self.homing_position = [0.0, 0.0, 0.0, 0.0]
         self.speed = 25.
+        self.use_inches = False
         self.speed_factor = 1. / 60.
         self.extrude_factor = 1.
         # G-Code state
@@ -94,6 +95,14 @@ class GCodeMove:
         return self.speed / self.speed_factor
     def _get_gcode_speed_override(self):
         return self.speed_factor * 60.
+    def _inch_to_mm(self, inch):
+        if inch is None:
+            return inch
+        return round(inch * 25.4, 6)
+    def _mm_to_inch(self, mm):
+        if mm is None:
+            return mm
+        return round(mm / 25.4, 6)
     def get_status(self, eventtime=None):
         move_position = self._get_gcode_position()
         return {
@@ -105,6 +114,7 @@ class GCodeMove:
             'homing_origin': self.Coord(*self.homing_position),
             'position': self.Coord(*self.last_position),
             'gcode_position': self.Coord(*move_position),
+            'use_inches': self.use_inches,
         }
     def reset_last_position(self):
         if self.is_printer_ready:
@@ -117,6 +127,8 @@ class GCodeMove:
             for pos, axis in enumerate('XYZ'):
                 if axis in params:
                     v = float(params[axis])
+                    if self.use_inches:
+                        v = self._inch_to_mm(v)
                     if not self.absolute_coord:
                         # value relative to position of last move
                         self.last_position[pos] += v
@@ -125,6 +137,8 @@ class GCodeMove:
                         self.last_position[pos] = v + self.base_position[pos]
             if 'E' in params:
                 v = float(params['E']) * self.extrude_factor
+                if self.use_inches:
+                    v = self._inch_to_mm(v)
                 if not self.absolute_coord or not self.absolute_extrude:
                     # value relative to position of last move
                     self.last_position[3] += v
@@ -133,6 +147,8 @@ class GCodeMove:
                     self.last_position[3] = v + self.base_position[3]
             if 'F' in params:
                 gcode_speed = float(params['F'])
+                if self.use_inches:
+                    gcode_speed = self.inch_to_mm(gcode_speed)
                 if gcode_speed <= 0.:
                     raise gcmd.error("Invalid speed in '%s'"
                                      % (gcmd.get_commandline(),))
@@ -144,10 +160,10 @@ class GCodeMove:
     # G-Code coordinate manipulation
     def cmd_G20(self, gcmd):
         # Set units to inches
-        raise gcmd.error('Machine does not support G20 (inches) command')
+        self.use_inches = True
     def cmd_G21(self, gcmd):
         # Set units to millimeters
-        pass
+        self.use_inches = False
     def cmd_M82(self, gcmd):
         # Use absolute distances for extrusion
         self.absolute_extrude = True
@@ -164,6 +180,8 @@ class GCodeMove:
         # Set position
         offsets = [ gcmd.get_float(a, None) for a in 'XYZE' ]
         for i, offset in enumerate(offsets):
+            if self.use_inches:
+                offset = self._inch_to_mm(offset)
             if offset is not None:
                 if i == 3:
                     offset *= self.extrude_factor
@@ -173,6 +191,8 @@ class GCodeMove:
     def cmd_M114(self, gcmd):
         # Get Current Position
         p = self._get_gcode_position()
+        if self.use_inches:
+            p = [self._mm_to_inch(pos) for pos in p]
         gcmd.respond_raw("X:%.3f Y:%.3f Z:%.3f E:%.3f" % tuple(p))
     def cmd_M220(self, gcmd):
         # Set speed factor override percentage
@@ -191,6 +211,8 @@ class GCodeMove:
         move_delta = [0., 0., 0., 0.]
         for pos, axis in enumerate('XYZE'):
             offset = gcmd.get_float(axis, None)
+            if self.use_inches:
+                offset = self._inch_to_mm(offset)
             if offset is None:
                 offset = gcmd.get_float(axis + '_ADJUST', None)
                 if offset is None:
